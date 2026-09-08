@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="es">
+<script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.0/dist/browser/signalr.min.js"></script>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel de Agentes — Aurora Home</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;500;600;700&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background: #14120f;
+            color: #f2ede4;
+        }
+
+        #loginScreen {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .login-card {
+            background: #1c1a15;
+            border: 1px solid rgba(242, 237, 228, 0.08);
+            padding: 44px;
+            border-radius: 12px;
+            width: 380px;
+        }
+
+        .login-card h1 {
+            font-family: 'Fraunces', serif;
+            font-size: 24px;
+            margin-bottom: 6px;
+        }
+
+        .login-card p {
+            color: #a39d90;
+            font-size: 13px;
+            margin-bottom: 28px;
+        }
+
+        .field {
+            margin-bottom: 16px;
+        }
+
+        .field label {
+            display: block;
+            font-size: 12.5px;
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: #cfc9bd;
+        }
+
+        .field input {
+            width: 100%;
+            padding: 11px 13px;
+            border: 1.5px solid rgba(242, 237, 228, 0.15);
+            border-radius: 6px;
+            font-size: 14px;
+            outline: none;
+            background: #14120f;
+            color: #f2ede4;
+        }
+
+        .field input:focus {
+            border-color: #c9a15c;
+        }
+
+        .field input::placeholder {
+            color: #6b6559;
+        }
+
+        .btn-primary {
+            width: 100%;
+            background: #c9a15c;
+            color: #14120f;
+            border: none;
+            padding: 12px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            margin-top: 8px;
+        }
+
+        .btn-primary:hover {
+            background: #d9b671;
+        }
+
+        /* --- Panel principal --- */
+        #app {
+            display: none;
+            min-height: 100vh;
+        }
+
+        header.topbar {
+            background: #1c1a15;
+            border-bottom: 1px solid rgba(242, 237, 228, 0.08);
+            padding: 16px 32px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .topbar-left {
+            font-family: 'Fraunces', serif;
+            font-size: 18px;
+        }
+
+        .topbar-left span {
+            color: #c9a15c;
+        }
+
+        .topbar-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: 13px;
+            color: #a39d90;
+        }
+
+        .btn-logout {
+            background: transparent;
+            border: 1px solid rgba(242, 237, 228, 0.2);
+            color: #f2ede4;
+            padding: 7px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .btn-logout:hover {
+            border-color: #c9a15c;
+        }
+
+        main {
+            padding: 32px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        main h2 {
+            font-family: 'Fraunces', serif;
+            font-size: 20px;
+            margin-bottom: 20px;
+        }
+
+        td {
+            padding: 14px 16px;
+            border-top: 1px solid rgba(242, 237, 228, 0.06);
+            font-size: 13.5px;
+        }
+
+        .pill {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .pill-alta {
+            background: #3f1d1d;
+            color: #f87171;
+        }
+
+        .pill-media {
+            background: #3d2e0f;
+            color: #facc15;
+        }
+
+        .pill-baja {
+            background: #0f2b3d;
+            color: #7dd3fc;
+        }
+
+        .pill-negativo {
+            background: #3f1d1d;
+            color: #f87171;
+        }
+
+        .pill-neutro {
+            background: rgba(242, 237, 228, 0.08);
+            color: #cfc9bd;
+        }
+
+        .pill-positivo {
+            background: #123a24;
+            color: #4ade80;
+        }
+
+        .summary {
+            color: #a39d90;
+            font-size: 12px;
+            margin-top: 4px;
+            max-width: 260px;
+        }
+
+        .panel { display: none; }
+        .panel.active { display: block; }
+        .tab-btn.active { color: #c9a15c !important; border-bottom-color: #c9a15c !important; }
+
+        .kb-card { background:#1c1a15; padding:16px 18px; border-radius:8px; margin-bottom:10px; }
+        .kb-card h4 { font-size:14.5px; margin-bottom:4px; }
+        .kb-card p { font-size:13px; color:#a39d90; }
+        .badge-emb { font-size:11px; padding:2px 8px; border-radius:12px; background:#123a24; color:#4ade80; margin-left:8px; }
+    </style>
+</head>
+
+<body>
+
+    <div id="loginScreen">
+        <div class="login-card">
+            <h1>Panel de Agentes</h1>
+            <p>AURORA HOME — Inicia sesión para gestionar tickets</p>
+
+            <div class="field">
+                <label>URL de la API</label>
+                <input type="text" id="apiUrlInput" value="http://13.218.226.215:5219" />
+            </div>
+            <div class="field">
+                <label>Correo</label>
+                <input type="email" id="loginEmail" placeholder="agente@empresa.com" />
+            </div>
+            <div class="field">
+                <label>Contraseña</label>
+                <input type="password" id="loginPassword" placeholder="••••••••" />
+            </div>
+            <button class="btn-primary" id="loginBtn">Iniciar sesión</button>
+            <p style="text-align:center; font-size:12.5px; color:#c9a15c; margin-top:16px; cursor:pointer;" id="showTenantForm">¿Necesitas crear una empresa nueva?</p>
+        </div>
+    </div>
+
+    <div id="tenantScreen" style="display:none; min-height:100vh; align-items:center; justify-content:center;">
+    <div class="login-card">
+        <h1>Crear nueva empresa</h1>
+        <p>Esto genera el API Key que usará tu widget</p>
+
+        <div class="field">
+            <label>Nombre de la empresa</label>
+            <input type="text" id="tenantName" placeholder="Aurora Home" />
+        </div>
+        <div class="field">
+            <label>Dominio autorizado (CORS)</label>
+            <input type="text" id="tenantDomain" placeholder="https://miempresa.com" />
+        </div>
+        <button class="btn-primary" id="createTenantBtn">Crear empresa</button>
+
+        <div id="tenantResult" style="display:none; background:#123a24; border:1px solid #1f5c38; padding:14px; border-radius:8px; margin-top:16px; font-size:12.5px; word-break:break-all;"></div>
+
+        <p style="text-align:center; font-size:12.5px; color:#c9a15c; margin-top:16px; cursor:pointer;" id="backToLogin">← Volver a iniciar sesión</p>
+    </div>
+    <div id="registerAgentBox" style="display:none; margin-top:20px; padding-top:20px; border-top:1px solid rgba(242,237,228,0.1);">
+    <p style="font-size:13px; color:#a39d90; margin-bottom:14px;">Ahora registra el primer agente de esta empresa:</p>
+    <div class="field">
+        <label>Nombre completo</label>
+        <input type="text" id="agentFullName" placeholder="Nombre del agente" />
+    </div>
+    <div class="field">
+        <label>Correo</label>
+        <input type="email" id="agentEmail" placeholder="agente@empresa.com" />
+    </div>
+    <div class="field">
+        <label>Contraseña</label>
+        <input type="password" id="agentPassword" placeholder="••••••••" />
+    </div>
+    <button class="btn-primary" id="registerAgentBtn">Registrar agente</button>
+    <div id="agentResult" style="display:none; background:#123a24; border:1px solid #1f5c38; padding:12px; border-radius:8px; margin-top:12px; font-size:12.5px;"></div>
+</div>
+</div>
+    <div id="app">
+        <header class="topbar">
+            <div class="topbar-left">AURORA <span>HOME</span> — Panel de Agentes</div>
+            <div class="topbar-right">
+                <span id="agentName"></span>
+                <button class="btn-logout" id="logoutBtn">Cerrar sesión</button>
+            </div>
+        </header>
+        <nav style="display:flex; gap:4px; padding:0 32px; background:#1c1a15; border-bottom:1px solid rgba(242,237,228,0.08);">
+  <button class="tab-btn active" data-tab="tickets" style="background:none; border:none; padding:14px 16px; font-size:14px; color:#a39d90; cursor:pointer; border-bottom:2px solid transparent; font-family:inherit;">Tickets</button>
+  <button class="tab-btn" data-tab="kb" style="background:none; border:none; padding:14px 16px; font-size:14px; color:#a39d90; cursor:pointer; border-bottom:2px solid transparent; font-family:inherit;">Base de Conocimiento</button>
+</nav>
+        <main>
+            <div class="panel active" id="panel-tickets">
+<h2>Tickets</h2>
+<div style="display:flex; gap:10px; margin-bottom:16px;">
+                <select id="filterStatus"
+                    style="padding:8px 12px; border-radius:6px; background:#1c1a15; color:#f2ede4; border:1px solid rgba(242,237,228,0.15);">
+                    <option value="">Todos los estados</option>
+                    <option value="Pendiente">Pendiente</option>
+                    <option value="EnProceso">En Proceso</option>
+                    <option value="Resuelto">Resuelto</option>
+                </select>
+                <select id="filterPriority"
+                    style="padding:8px 12px; border-radius:6px; background:#1c1a15; color:#f2ede4; border:1px solid rgba(242,237,228,0.15);">
+                    <option value="">Todas las prioridades</option>
+                    <option value="Alta">Alta</option>
+                    <option value="Media">Media</option>
+                    <option value="Baja">Baja</option>
+                </select>
+            </div>
+            <table
+                style="width:100%; border-collapse:collapse; background:#1c1a15; border-radius:10px; overflow:hidden;">
+                <thead>
+                    <tr style="background:rgba(242,237,228,0.04);">
+                        <th
+                            style="text-align:left; padding:12px 16px; font-size:12px; text-transform:uppercase; color:#a39d90; letter-spacing:0.5px;">
+                            Cliente</th>
+                        <th
+                            style="text-align:left; padding:12px 16px; font-size:12px; text-transform:uppercase; color:#a39d90; letter-spacing:0.5px;">
+                            Asunto</th>
+                        <th
+                            style="text-align:left; padding:12px 16px; font-size:12px; text-transform:uppercase; color:#a39d90; letter-spacing:0.5px;">
+                            Prioridad</th>
+                        <th
+                            style="text-align:left; padding:12px 16px; font-size:12px; text-transform:uppercase; color:#a39d90; letter-spacing:0.5px;">
+                            Sentimiento</th>
+                        <th
+                            style="text-align:left; padding:12px 16px; font-size:12px; text-transform:uppercase; color:#a39d90; letter-spacing:0.5px;">
+                            Estado</th>
+                    </tr>
+                </thead>
+                <tbody id="ticketsBody"></tbody>
+            </table>
+</div>
+
+<div class="panel" id="panel-kb">
+    <h2>Base de Conocimiento</h2>
+    <div style="background:#1c1a15; padding:20px; border-radius:10px; margin-bottom:20px;">
+        <input type="text" id="kbTitle" placeholder="Título del artículo"
+            style="width:100%; padding:10px 12px; border-radius:6px; background:#14120f; color:#f2ede4; border:1px solid rgba(242,237,228,0.15); margin-bottom:10px; font-family:inherit;" />
+        <textarea id="kbContent" placeholder="Contenido del artículo..." rows="3"
+            style="width:100%; padding:10px 12px; border-radius:6px; background:#14120f; color:#f2ede4; border:1px solid rgba(242,237,228,0.15); margin-bottom:10px; font-family:inherit; resize:vertical;"></textarea>
+        <button class="btn-primary" id="kbSubmit" style="width:auto; padding:10px 20px;">Publicar artículo</button>
+    </div>
+    <div id="kbList"></div>
+</div>
+
+<script>
+    let apiUrl = '';
+    let token = '';
+    let tenantId = '';
+
+    const loginScreen = document.getElementById('loginScreen');
+    const app = document.getElementById('app');
+    const loginBtn = document.getElementById('loginBtn');
+
+    loginBtn.addEventListener('click', async () => {
+        apiUrl = document.getElementById('apiUrlInput').value.trim().replace(/\/$/, '');
+        const email = document.getElementById('loginEmail').value.trim();
+        const password = document.getElementById('loginPassword').value;
+
+        try {
+            const res = await fetch(`${apiUrl}/api/v1/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, password })
+            });
+
+            if (!res.ok) throw new Error('Credenciales inválidas');
+
+            const data = await res.json();
+            token = data.token;
+            tenantId = parseJwt(token).tenantId;
+
+            document.getElementById('agentName').textContent = `${data.fullName} (${data.role})`;
+            loginScreen.style.display = 'none';
+            app.style.display = 'block';
+
+            loadTickets();
+            loadKb();
+            connectNotifications();
+        } catch (err) {
+            console.error('Error de login:', err);
+            alert('No se pudo iniciar sesión. Revisa tus credenciales.');
+        }
+    });
+
+    document.getElementById('logoutBtn').addEventListener('click', () => location.reload());
+
+    function parseJwt(t) {
+        const payload = t.split('.')[1];
+        return JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+    }
+
+    async function loadTickets() {
+        const status = document.getElementById('filterStatus').value;
+        const priority = document.getElementById('filterPriority').value;
+        const params = new URLSearchParams();
+        if (status) params.set('status', status);
+        if (priority) params.set('priority', priority);
+
+        const res = await fetch(`${apiUrl}/api/v1/tickets?${params}`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        const tickets = await res.json();
+
+        const body = document.getElementById('ticketsBody');
+        body.innerHTML = '';
+
+        tickets.forEach(t => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+    <td>${t.customerName}</td>
+    <td>${t.subject}${t.aiSummary ? `<div class="summary">${t.aiSummary}</div>` : ''}</td>
+    <td><span class="pill pill-${t.priority.toLowerCase()}">${t.priority}</span></td>
+    <td>${t.sentiment ? `<span class="pill pill-${t.sentiment.toLowerCase()}">${t.sentiment}</span>` : '—'}</td>
+    <td>
+      <select class="status-select" data-id="${t.id}" style="background:#14120f; color:#f2ede4; border:1px solid rgba(242,237,228,0.15); border-radius:4px; padding:4px 6px; font-size:12.5px;">
+        <option value="Pendiente" ${t.status === 'Pendiente' ? 'selected' : ''}>Pendiente</option>
+        <option value="EnProceso" ${t.status === 'EnProceso' ? 'selected' : ''}>En Proceso</option>
+        <option value="Resuelto" ${t.status === 'Resuelto' ? 'selected' : ''}>Resuelto</option>
+      </select>
+    </td>
+  `;
+            body.appendChild(tr);
+        });
+
+        document.querySelectorAll('.status-select').forEach(sel => {
+            sel.addEventListener('change', async (e) => {
+                await fetch(`${apiUrl}/api/v1/tickets/${e.target.dataset.id}/status`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ status: e.target.value })
+                });
+            });
+        });
+    }
+
+    document.getElementById('filterStatus').addEventListener('change', loadTickets);
+    document.getElementById('filterPriority').addEventListener('change', loadTickets);
+
+    function connectNotifications() {
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl(`${apiUrl}/hubs/tickets`)
+            .withAutomaticReconnect()
+            .build();
+
+        connection.on('NewCriticalTicket', (data) => {
+            showToast(data);
+            loadTickets();
+        });
+
+        connection.start()
+            .then(() => connection.invoke('JoinTenantGroup', tenantId))
+            .catch(err => console.error('Error SignalR:', err));
+    }
+
+    function showToast(data) {
+        const toast = document.createElement('div');
+        toast.style.cssText = 'position:fixed; top:20px; right:20px; background:#1c1a15; border-left:4px solid #ef4444; padding:14px 18px; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.3); width:300px; z-index:9999;';
+        toast.innerHTML = `<strong style="font-size:13.5px;">⚠️ Ticket crítico</strong><p style="font-size:12.5px; color:#a39d90; margin-top:4px;">${data.subject} — ${data.customerName}</p>`;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 6000);
+    }
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+    });
+});
+
+async function loadKb() {
+    const res = await fetch(`${apiUrl}/api/v1/kb-articles`, {
+        headers: { Authorization: `Bearer ${token}` }
+    });
+    const articles = await res.json();
+
+    const list = document.getElementById('kbList');
+    list.innerHTML = '';
+
+    articles.forEach(a => {
+        const card = document.createElement('div');
+        card.className = 'kb-card';
+        card.innerHTML = `<h4>${a.title} ${a.hasEmbedding ? '<span class="badge-emb">✓ indexado</span>' : ''}</h4><p>${a.content}</p>`;
+        list.appendChild(card);
+    });
+}
+
+document.getElementById('kbSubmit').addEventListener('click', async () => {
+    const title = document.getElementById('kbTitle').value.trim();
+    const content = document.getElementById('kbContent').value.trim();
+    if (!title || !content) return;
+
+    await fetch(`${apiUrl}/api/v1/kb-articles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ title, content })
+    });
+
+    document.getElementById('kbTitle').value = '';
+    document.getElementById('kbContent').value = '';
+    loadKb();
+});
+
+document.getElementById('showTenantForm').addEventListener('click', () => {
+    loginScreen.style.display = 'none';
+    document.getElementById('tenantScreen').style.display = 'flex';
+});
+
+document.getElementById('backToLogin').addEventListener('click', () => {
+    document.getElementById('tenantScreen').style.display = 'none';
+    loginScreen.style.display = 'flex';
+});
+
+let newTenantId = '';
+
+document.getElementById('createTenantBtn').addEventListener('click', async () => {
+    const url = document.getElementById('apiUrlInput').value.trim().replace(/\/$/, '');
+    const name = document.getElementById('tenantName').value.trim();
+    const domain = document.getElementById('tenantDomain').value.trim();
+    if (!name || !domain) return;
+
+    const res = await fetch(`${url}/api/v1/tenants`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, allowedDomain: domain })
+    });
+    const data = await res.json();
+    newTenantId = data.id;
+
+    const box = document.getElementById('tenantResult');
+    box.style.display = 'block';
+    box.innerHTML = `<strong>¡Empresa creada!</strong><br>Widget API Key:<br><code>${data.widgetApiKey}</code>`;
+
+    document.getElementById('registerAgentBox').style.display = 'block';
+});
+
+document.getElementById('registerAgentBtn').addEventListener('click', async () => {
+    const url = document.getElementById('apiUrlInput').value.trim().replace(/\/$/, '');
+    const fullName = document.getElementById('agentFullName').value.trim();
+    const email = document.getElementById('agentEmail').value.trim();
+    const password = document.getElementById('agentPassword').value;
+    if (!fullName || !email || !password) return;
+
+    const res = await fetch(`${url}/api/v1/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId: newTenantId, fullName, email, password })
+    });
+
+    const box = document.getElementById('agentResult');
+    box.style.display = 'block';
+
+    if (!res.ok) {
+        box.innerHTML = `Error al registrar el agente. ¿Ya existe ese correo?`;
+        return;
+    }
+
+    box.innerHTML = `<strong>¡Agente registrado!</strong> Ya puedes iniciar sesión con <code>${email}</code>.`;
+});
+
+</script>
+</body>
+
+</html>

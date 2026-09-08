@@ -1,0 +1,50 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: pqrs-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pqrs_saas
+      POSTGRES_USER: pqrs_user
+      POSTGRES_PASSWORD: pqrs_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - pqrs_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pqrs_user -d pqrs_saas"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: pqrs-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - pqrs_ollama_data:/root/.ollama
+
+  api:
+    build:
+      context: .
+      dockerfile: src/PQRS.Api/Dockerfile
+    container_name: pqrs-api
+    restart: unless-stopped
+    ports:
+      - "5219:8080"
+    environment:
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=pqrs_saas;Username=pqrs_user;Password=pqrs_password"
+      Ollama__BaseUrl: "http://ollama:11434"
+      Groq__ApiKey: "${GROQ_API_KEY}"
+      Jwt__SecretKey: "${JWT_SECRET_KEY}"
+    depends_on:
+      db:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+
+volumes:
+  pqrs_pgdata:
+  pqrs_ollama_data:
