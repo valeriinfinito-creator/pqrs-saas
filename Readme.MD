@@ -10,14 +10,24 @@ Plataforma que permite a múltiples empresas centralizar y automatizar la gesti�
   - Embeddings generados localmente vía **Ollama** (modelo `all-minilm`, 384 dimensiones)
   - Chat, síntesis de respuestas RAG y triaje automático vía **Groq** (API compatible con OpenAI)
 - **Widget**: JavaScript vanilla con Shadow DOM, sin dependencias externas
+- **Panel de administración**: HTML/JS vanilla, conectado en tiempo real vía SignalR
 - **Contenedores**: Docker Compose (API + PostgreSQL + Ollama)
+- **Despliegue**: AWS EC2 (Ubuntu) + nginx para archivos estáticos
 
-## Requisitos previos
+## Despliegue en producción
+
+El sistema está desplegado en AWS EC2 y accesible públicamente:
+
+- **API**: http://13.218.226.215:5219
+- **Widget de demostración**: http://13.218.226.215/test.html
+- **Panel de agentes**: http://13.218.226.215/admin.html
+
+## Requisitos previos (para correr localmente)
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 - Una cuenta y API Key de [Groq](https://console.groq.com/keys) (gratuita)
 
-## Puesta en marcha
+## Puesta en marcha local
 
 ### 1. Clonar el repositorio
 
@@ -57,7 +67,13 @@ Este comando levanta 3 contenedores:
 docker exec -it pqrs-ollama ollama pull all-minilm
 ```
 
-### 4. Verificar que todo funciona
+### 4. Aplicar las migraciones de base de datos
+
+```bash
+dotnet ef database update --project src/PQRS.Infrastructure --startup-project src/PQRS.Api
+```
+
+### 5. Verificar que todo funciona
 
 ```bash
 curl http://localhost:5219/health
@@ -111,6 +127,26 @@ Devuelve un token JWT a usar en el header `Authorization: Bearer <token>` para l
 
 Los endpoints de `/api/v1/widget/*` requieren el header `X-Widget-Api-Key` con el `widgetApiKey` del tenant.
 
+## Módulo de Inteligencia Artificial
+
+### RAG (Retrieval-Augmented Generation)
+
+1. El widget envía la pregunta del usuario a `/api/v1/widget/rag-search`
+2. La API genera el embedding de la pregunta usando Ollama (modelo `all-minilm`)
+3. Se busca por similitud coseno en la tabla `KnowledgeBaseArticles`, filtrado por Tenant, usando el índice vectorial HNSW de pgvector
+4. Si la similitud supera el umbral (0.5), se sintetiza una respuesta con Groq usando únicamente los artículos recuperados como contexto
+5. Si no hay coincidencia suficiente, se escala al formulario de radicación
+
+### Triaje automático
+
+Al crear un ticket, el asunto y la descripción se envían a Groq (modo JSON estructurado) para clasificar automáticamente:
+- **Tipo**: Petición, Queja, Reclamo o Sugerencia
+- **Prioridad**: Baja, Media o Alta
+- **Sentimiento**: Positivo, Neutro o Negativo
+- **Resumen ejecutivo**: síntesis de 1-2 oraciones
+
+Si el ticket resulta de prioridad Alta o sentimiento Negativo, se dispara una notificación en tiempo real vía SignalR a los agentes conectados de ese Tenant.
+
 ## Incrustar el widget en un sitio externo
 
 Agrega esta línea antes de cerrar `</body>` en cualquier sitio HTML:
@@ -135,94 +171,44 @@ Agrega esta línea antes de cerrar `</body>` en cualquier sitio HTML:
 | `data-primary-color` | No | Color principal en formato hex, para adaptar el branding |
 
 El widget funciona en dos fases:
-1. **Chat RAG**: el usuario escribe una pregunta; si existe un artículo de la base de conocimiento suficientemente similar, se sintetiza una respuesta automática.
-2. **Formulario**: si no hay respuesta satisfactoria, se muestra un formulario de radicación de PQRS, que al enviarse pasa por triaje automático de IA (tipo, prioridad, sentimiento, resumen).
+1. **Chat RAG**: el usuario escribe una pregunta; si existe un artículo de la base de conocimiento suficientemente similar, se sintetiza una respuesta automática, con botones "¿Te ayudó? Sí/No".
+2. **Formulario**: si no hay respuesta satisfactoria, se muestra un formulario de radicación de PQRS, que al enviarse pasa por triaje automático de IA.
 
-## Desarrollo local (sin Docker para la API)
+## Panel de administración (admin.html)
 
-Si prefieres correr la API con `dotnet run` en vez de Docker (más rápido para iterar en desarrollo):
+Panel web para agentes, sin dependencias de build, que permite:
+- Iniciar sesión (JWT)
+- Ver y filtrar tickets por estado/prioridad, con triaje de IA visible (tipo, prioridad, sentimiento, resumen)
+- Actualizar el estado de un ticket en vivo
+- Recibir notificaciones en tiempo real de tickets críticos (SignalR)
+- Crear y ver artículos de la base de conocimiento
+- Crear nuevas empresas (Tenants) y registrar su primer agente
 
-```bash
-docker compose up -d db ollama   # solo base de datos y embeddings en Docker
-dotnet user-secrets set "Groq:ApiKey" "tu_key" --project src/PQRS.Api
-dotnet run --project src/PQRS.Api
-```
+## Aislamiento Multi-tenant
 
-En este modo, la API usa `appsettings.json` (con `Host=localhost` en la cadena de conexión) en vez de las variables de entorno del `docker-compose.yml`.
+- **Peticiones del widget** (sin login): se identifican mediante el header `X-Widget-Api-Key`, validado por un middleware contra la tabla `Tenants`.
+- **Peticiones de agentes** (con login): el `TenantId` viaja como Claim dentro del JWT, firmado y verificado en cada petición.
+- Todas las consultas a la base de datos filtran explícitamente por `TenantId`, garantizando que ninguna empresa pueda ver datos de otra.
+- **CORS dinámico**: un middleware valida el header `Origin` de cada petición del widget contra el `AllowedDomain` configurado para ese Tenant específico.
 
 ## Estructura del proyecto
 
-```
 pqrs-saas/
-├── PQRS.slnx
-├── docker-compose.yml        db + ollama + api, 1 solo comando
-├── .env / .gitignore          secretos protegidos
-├── README.md                   documentación completa, probada reproducible
+├── docker-compose.yml
+├── .env # Secretos (no versionado)
 ├── src/
-│   ├── PQRS.Domain            Tenant, User, KnowledgeBaseArticle, Ticket
-│   ├── PQRS.Application         DTOs, interfaces
-│   ├── PQRS.Infrastructure      EF Core + pgvector + Ollama + Groq
-│   └── PQRS.Api                 
-│       ├── Auth (JWT + API Key widget) + CORS dinámico por tenant
-│       ├── CRUD KB Articles con embeddings automáticos
-│       ├── Tickets: crear (triaje IA), listar (filtros), actualizar
-│       ├── RAG search funcionando end-to-end
-│       └── SignalR: notificaciones en tiempo real de tickets críticos
+│ ├── PQRS.Domain/ # Entidades del negocio
+│ ├── PQRS.Application/ # DTOs, interfaces de casos de uso
+│ ├── PQRS.Infrastructure/ # EF Core, integración con IA (Ollama + Groq)
+│ └── PQRS.Api/ # Endpoints, middleware, autenticación, SignalR
 └── widget/
-    ├── pqrs-widget.js          chat RAG + formulario, diseño profesional
-    ├── test.html                landing page de demo
-    └── agent-notifications-test.html   demo de notificaciones en vivo
+├── pqrs-widget.js # Widget embebible
+├── test.html # Página de prueba (landing page de demo)
+└── admin.html # Panel de administración para agentes
 
-## Comandos para probar
 
-$body = @{
-    customerName      = "Roberto Fernández"
-    customerEmail     = "roberto@correo.com"
-    subject           = "Pregunta sobre el servicio"
-    description       = "Quisiera saber más detalles sobre sus planes disponibles."
-    originatedFromRag = $false
-} | ConvertTo-Json
+## Decisiones técnicas relevantes
 
-$bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($body)
-
-Invoke-RestMethod -Uri "http://localhost:5219/api/v1/widget/tickets" -Method Post -ContentType "application/json; charset=utf-8" -Headers @{ "X-Widget-Api-Key" = "TU_WIDGET_API_KEY_DE_LA_EMPRESA_NUEVA" } -Body $bodyBytes
-
-# Ver las tablas y columnas reales dentro de Postgres (pgvector incluido)
-
-bash
-docker exec -it pqrs-db psql -U pqrs_user -d pqrs_saas -c "\d \"KnowledgeBaseArticles\""
-
-# Confirmar el índice vectorial HNSW (requisito explícito del documento)
-
-bash
-docker exec -it pqrs-db psql -U pqrs_user -d pqrs_saas -c "\di"
-
-# Login y generación de JWT con claim de tenant
-
-powershell
-$r = Invoke-RestMethod -Uri "http://localhost:5219/api/v1/auth/login" -Method Post -ContentType "application/json" -Body '{"email":"ana@empresademo.com","password":"Clave123!"}'
-$r.token
-
-# Crear un ticket y ver el triaje de IA calculado en tiempo real
-
-$body = @{
-    customerName = "Demo"
-    customerEmail = "demo@x.com"
-    subject = "Prueba"
-    description = "Esto es una prueba de triaje automatico."
-    originateFromRag = $false
-} | ConvertTo-Json
-$bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
-Invoke-RestMethod -Uri "http://13.218.226.215:5219/api/v1/widget/tickets" -Method Post -ContentType "application/json; charset=utf-8" -Headers @{ "X-Widget-Api-Key" = "db56f49d2d5f49db875c3936ebe2d3e1" } -Body $bytes'
-
-# Probar RAG (búsqueda semántica + síntesis con IA)
-
-$body = @{ question = "cual es el horario de atencion" } | ConvertTo-Json
-$bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
-Invoke-RestMethod -Uri "http://localhost:5219/api/v1/widget/rag-search" -Method Post -ContentType "application/json; charset=utf-8" -Headers @{ "X-Widget-Api-Key" = "db56f49d2d5f49db875c3936ebe2d3e1" } -Body $bytes
-
-# Confirmar aislamiento multi-tenant a nivel de base de datos
-
-bash
-1 docker exec -it pqrs-db psql -U pqrs_user -d pqrs_saas 
-2 SELECT "TenantId", COUNT(*) FROM "Tickets" GROUP BY "TenantId"; 
+- **Ollama en vez de OpenAI/Groq para embeddings**: la cuenta institucional de OpenAI disponible no tenía acceso a modelos de embeddings, y Groq tampoco lo ofrecía en el tier disponible. Se optó por correr un modelo de embeddings localmente (Ollama, `all-minilm`, 384 dimensiones), eliminando la dependencia de terceros para esa funcionalidad.
+- **Groq para chat/triaje**: modelo `openai/gpt-oss-20b`, elegido por ser rápido, gratuito en su tier, y compatible con el mismo formato de API que OpenAI (mismo SDK de .NET, solo cambia la URL base).
+- **Umbral de similitud ajustado a 0.5**: calibrado empíricamente para el modelo `all-minilm`, que produce scores de similitud más conservadores que modelos más grandes.
